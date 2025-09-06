@@ -33,6 +33,7 @@ from musubi_tuner.wan.modules.model import WanModel, detect_wan_sd_dtype, load_w
 from musubi_tuner.wan.modules.t5 import T5EncoderModel
 from musubi_tuner.wan.modules.vae import WanVAE
 from musubi_tuner.wan.utils.fm_solvers_unipc import FlowUniPCMultistepScheduler
+from musubi_tuner.modules.scheduling_flow_match_discrete import FlowMatchDiscreteScheduler
 
 
 class WanNetworkTrainer(NetworkTrainer):
@@ -677,9 +678,96 @@ class WanNetworkTrainer(NetworkTrainer):
         target = noise - latents
 
         return model_pred, target
-
+    def run_validation(self, accelerator, args, epoch, vae, transformer, validation_dataloader, network_dtype):
+        """Run validation and return average loss"""
+        if validation_dataloader is None:
+            return None
+            
+        logger.info(f"Running validation at epoch {epoch}")
+        
+        # Set model to eval mode
+        unwrapped_model = accelerator.unwrap_model(transformer)
+        unwrapped_model.eval()
+            
+        total_loss = 0.0
+        total_samples = 0
+        image_loss = 0.0
+        image_samples = 0
+        video_loss = 0.0
+        video_samples = 0
+        
+        noise_scheduler = FlowMatchDiscreteScheduler(shift=args.discrete_flow_shift, reverse=True, solver="euler")
+        
+        with torch.no_grad():
+            for step, batch in enumerate(validation_dataloader):
+                latents = batch["latents"].to(device=accelerator.device) 
+                bsz = latents.shape[0]
+                
+                # Determine if this is image or video data
+                is_image_data = latents.shape[2] == 1  # Single frame = image
+                
+                latents = self.scale_shift_latents(latents)
+                
+                # Sample noise
+                noise = torch.randn_like(latents)
+                
+                # Get noisy model input and timesteps
+                noisy_model_input, timesteps = self.get_noisy_model_input_and_timesteps(
+                    args, noise, latents, batch["timesteps"], noise_scheduler, accelerator.device, self.dit_dtype
+                )
+                
+                # Call DiT model
+                with accelerator.autocast():
+                    model_pred, target = self.call_dit(
+                        args, accelerator, transformer, latents, batch, noise, noisy_model_input, timesteps, network_dtype
+                    )
+                
+                # Calculate loss
+                loss = torch.nn.functional.mse_loss(model_pred.to(network_dtype), target, reduction="mean")
+                
+                # Accumulate losses
+                loss_value = loss.item()
+                total_loss += loss_value * bsz
+                total_samples += bsz
+                
+                if is_image_data:
+                    image_loss += loss_value * bsz
+                    image_samples += bsz
+                else:
+                    video_loss += loss_value * bsz
+                    video_samples += bsz
+        
+        # Calculate averages
+        avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+        avg_image_loss = image_loss / image_samples if image_samples > 0 else None
+        avg_video_loss = video_loss / video_samples if video_samples > 0 else None
+        
+        # Set model back to train mode
+        if args.gradient_checkpointing:
+            unwrapped_model.train()
+        else:
+            unwrapped_model.eval()
+                
+        logger.info(f"Validation complete - Avg Loss: {avg_loss:.6f}")
+        if avg_image_loss is not None:
+            logger.info(f"  Image Loss: {avg_image_loss:.6f} ({image_samples} samples)")
+        if avg_video_loss is not None:
+            logger.info(f"  Video Loss: {avg_video_loss:.6f} ({video_samples} samples)")
+        
+        try:
+            # Clean up any remaining variables from the validation loop
+            clean_memory_on_device(accelerator.device)
+        except Exception as e:
+            logger.warning(f"Memory cleanup after validation failed: {e}")
+    
+        return {
+            "val_loss": avg_loss,
+            "val_image_loss": avg_image_loss,
+            "val_video_loss": avg_video_loss,
+            "val_image_samples": image_samples,
+            "val_video_samples": video_samples
+        }
     # endregion model specific
-
 
 def wan_setup_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Wan2.1/2.2 specific parser setup"""
@@ -708,6 +796,11 @@ def wan_setup_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         "--offload_inactive_dit",
         action="store_true",
         help="Offload inactive DiT model to CPU. Cannot be used with block swap / アクティブではないDiTモデルをCPUにオフロードします。ブロックスワップと併用できません",
+    )
+    parser.add_argument(
+        "--run_val", 
+        action="store_true", 
+        help="Run validation at the end of each epoch and log to TensorBoard"
     )
 
     return parser
