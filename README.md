@@ -5,7 +5,7 @@ This is a fork as of 9/6/2025.
 
 I used Claude to add a validation test during training for Wan2.2 sooooo it may not work.
 
-The validation checks after every 1 epoch and save tensor log.
+The validation checks after every 1 epoch and saves to tensor log.
 
 [Example Dataset with Validation](https://github.com/niceguy4/musubi-tuner-wan-validation/blob/main/src/musubi_tuner/dataset/dataset.toml)
 
