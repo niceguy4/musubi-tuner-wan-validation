@@ -20,6 +20,7 @@ from musubi_tuner.hv_train_network import (
 from musubi_tuner.modules.custom_offloading_utils import synchronize_device
 from musubi_tuner.modules.scheduling_flow_match_discrete import FlowMatchDiscreteScheduler
 from musubi_tuner.wan_generate_video import parse_one_frame_inference_args
+import random
 
 import logging
 
@@ -687,6 +688,7 @@ class WanNetworkTrainer(NetworkTrainer):
         
         # Set model to eval mode
         unwrapped_model = accelerator.unwrap_model(transformer)
+        original_training_state = unwrapped_model.training
         unwrapped_model.eval()
             
         total_loss = 0.0
@@ -710,12 +712,22 @@ class WanNetworkTrainer(NetworkTrainer):
                 
                 # Sample noise
                 noise = torch.randn_like(latents)
+
+                validation_timesteps = None
+                if hasattr(args, 'min_timestep') and hasattr(args, 'max_timestep'):
+                    if args.min_timestep is not None or args.max_timestep is not None:
+                        # Generate timesteps in the same range as training
+                        t_min = args.min_timestep if args.min_timestep is not None else 0
+                        t_max = args.max_timestep if args.max_timestep is not None else 1000
+                        # Sample uniform timesteps in the training range
+                        validation_timesteps = [random.uniform(t_min/1000.0, t_max/1000.0) for _ in range(bsz)]
+        
                 
                 # Get noisy model input and timesteps
                 noisy_model_input, timesteps = self.get_noisy_model_input_and_timesteps(
-                    args, noise, latents, batch["timesteps"], noise_scheduler, accelerator.device, self.dit_dtype
+                    args, noise, latents, validation_timesteps, noise_scheduler, accelerator.device, self.dit_dtype
                 )
-                
+                                
                 # Call DiT model
                 with accelerator.autocast():
                     model_pred, target = self.call_dit(
@@ -741,12 +753,9 @@ class WanNetworkTrainer(NetworkTrainer):
         avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
         avg_image_loss = image_loss / image_samples if image_samples > 0 else None
         avg_video_loss = video_loss / video_samples if video_samples > 0 else None
-        
-        # Set model back to train mode
-        if args.gradient_checkpointing:
-            unwrapped_model.train()
-        else:
-            unwrapped_model.eval()
+
+        # Restore original training state
+        unwrapped_model.train(original_training_state)
                 
         logger.info(f"Validation complete - Avg Loss: {avg_loss:.6f}")
         if avg_image_loss is not None:
