@@ -1,0 +1,50 @@
+# ==========================
+# General training settings
+# ==========================
+[general]
+caption_extension = ".txt"
+enable_bucket = true
+bucket_no_upscale = false
+batch_size = 1
+
+# ==========================
+# Training datasets
+# ==========================
+[[datasets]]
+image_directory = "D:/Dataset/reg_pictures"
+cache_directory = "D:/Dataset/cache_img"
+resolution = [1024, 1024]
+num_repeats = 1
+
+[[datasets]]
+video_directory = "D:/Dataset/reg_videos"
+cache_directory = "D:/Dataset/cache_vid"
+resolution = [290, 290]
+num_repeats = 1
+frame_extraction = "full"
+target_frames = [45]
+frame_sample = 2
+
+# ==========================
+# Validation datasets
+# ==========================
+[validation]
+# Inherit defaults from [general]; override only if needed
+batch_size = 1
+enable_bucket = true
+bucket_no_upscale = false
+
+# Images (own block)
+[[validation.datasets]]
+image_directory = "D:/Dataset/val_images"
+cache_directory = "D:/Dataset/cache_images"
+resolution = [1024, 1024]
+
+# Videos (own block)
+[[validation.datasets]]
+video_directory = "D:/Dataset/val_videos"
+cache_directory = "D:/Dataset/cache_val_videos"
+resolution = [290, 290]
+frame_extraction = "full"
+target_frames = [45]
+frame_sample = 2
