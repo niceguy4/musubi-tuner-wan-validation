@@ -83,6 +83,7 @@ class DatasetGroupBlueprint:
 @dataclass
 class Blueprint:
     dataset_group: DatasetGroupBlueprint
+    validation_group: Optional[DatasetGroupBlueprint] = None
 
 
 class ConfigSanitizer:
@@ -164,16 +165,25 @@ class ConfigSanitizer:
         self.general_schema = self.__merge_dict(
             self.DATASET_ASCENDABLE_SCHEMA,
         )
-        self.user_config_validator = Schema(
-            {
-                "general": self.general_schema,
-                "datasets": [self.dataset_schema],
-            }
-        )
+
         self.argparse_schema = self.__merge_dict(
             self.ARGPARSE_SPECIFIC_SCHEMA,
         )
         self.argparse_config_validator = Schema(Object(self.argparse_schema), extra=voluptuous.ALLOW_EXTRA)
+        self.validation_schema = {
+            "batch_size": int,
+            "enable_bucket": bool,
+            "bucket_no_upscale": bool,
+            "datasets": [self.dataset_schema]  # Use same dataset schema as main datasets
+        }
+        
+        self.user_config_validator = Schema(
+            {
+                "general": self.general_schema,
+                "datasets": [self.dataset_schema],
+                "validation": self.validation_schema,  # Add validation section
+            }
+        )
 
     def sanitize_user_config(self, user_config: dict) -> dict:
         try:
@@ -220,6 +230,7 @@ class BlueprintGenerator:
         argparse_config = {k: v for k, v in vars(sanitized_argparse_namespace).items() if v is not None}
         general_config = sanitized_user_config.get("general", {})
 
+        # Generate training datasets
         dataset_blueprints = []
         for dataset_config in sanitized_user_config.get("datasets", []):
             is_image_dataset = "image_directory" in dataset_config or "image_jsonl_file" in dataset_config
@@ -233,9 +244,34 @@ class BlueprintGenerator:
             )
             dataset_blueprints.append(DatasetBlueprint(is_image_dataset, params))
 
-        dataset_group_blueprint = DatasetGroupBlueprint(dataset_blueprints)
+        # Generate validation datasets if run_val is True
+        validation_blueprints = []
+        is_training_context = hasattr(argparse_namespace, 'run_val')
+        should_process_validation = (
+            "validation" in sanitized_user_config and 
+            (argparse_config.get("run_val", False) or not is_training_context)
+        )
 
-        return Blueprint(dataset_group_blueprint)
+        if should_process_validation:
+            validation_config = sanitized_user_config["validation"]
+            validation_general = {k: v for k, v in validation_config.items() if k != "datasets"}
+            
+            for dataset_config in validation_config.get("datasets", []):
+                is_image_dataset = "image_directory" in dataset_config or "image_jsonl_file" in dataset_config
+                if is_image_dataset:
+                    dataset_params_klass = ImageDatasetParams
+                else:
+                    dataset_params_klass = VideoDatasetParams
+
+                params = self.generate_params_by_fallbacks(
+                    dataset_params_klass, [dataset_config, validation_general, general_config, argparse_config, runtime_params]
+                )
+                validation_blueprints.append(DatasetBlueprint(is_image_dataset, params))
+
+        dataset_group_blueprint = DatasetGroupBlueprint(dataset_blueprints)
+        validation_group_blueprint = DatasetGroupBlueprint(validation_blueprints) if validation_blueprints else None
+
+        return Blueprint(dataset_group_blueprint, validation_group_blueprint)
 
     @staticmethod
     def generate_params_by_fallbacks(param_klass, fallbacks: Sequence[dict]):
