@@ -54,9 +54,19 @@ def main():
     logger.info(f"Load dataset config from {args.dataset_config}")
     user_config = config_utils.load_user_config(args.dataset_config)
     blueprint = blueprint_generator.generate(user_config, args, architecture=ARCHITECTURE_WAN)
-    train_dataset_group = config_utils.generate_dataset_group_by_blueprint(blueprint.dataset_group)
 
+    # Process training datasets
+    train_dataset_group = config_utils.generate_dataset_group_by_blueprint(blueprint.dataset_group)
     datasets = train_dataset_group.datasets
+    logger.info(f"Processing {len(datasets)} training datasets")
+
+    # Process validation datasets if they exist
+    if blueprint.validation_group is not None:
+        validation_dataset_group = config_utils.generate_dataset_group_by_blueprint(blueprint.validation_group)
+        datasets.extend(validation_dataset_group.datasets)
+        logger.info(f"Processing {len(validation_dataset_group.datasets)} validation datasets")
+    else:
+        logger.info("No validation datasets found in config")
 
     # define accelerator for fp8 inference
     config = wan_t2v_14B.t2v_14B  # all Wan2.1 models have the same config for t5
