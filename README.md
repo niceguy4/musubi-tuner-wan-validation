@@ -1,7 +1,7 @@
 ##
 This is a fork as of 9/6/2025. 
 
-I used Claude to add a validation test during training for Wan2.2
+I used Claude to add a validation test during training for Wan2.2 sooooo it may not work.
 
 The validation checks after every 1 epoch and save tensor log.
 
