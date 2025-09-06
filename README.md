@@ -9,6 +9,10 @@ The validation checks after every 1 epoch and save tensor log.
 
 Add `--run_val` to accelerate launch command to include validation testing during training.
 
+Here is an example command that I use for training that works.
+
+`accelerate launch --num_cpu_threads_per_process 1 --mixed_precision fp16 src/musubi_tuner/wan_train_network.py --task t2v-A14B --dit models/diffusion_models/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp16.safetensors --vae models/vae/split_files/vae/wan_2.1_vae.safetensors --t5 models/text_encoders/models_t5_umt5-xxl-enc-bf16.pth --dataset_config "D:/Dataset/dataset.toml" --sdpa --mixed_precision fp16 --fp8_base --fp8_scaled --optimizer_type adamw --learning_rate 1.5e-4 --gradient_checkpointing --gradient_accumulation_steps 1 --max_data_loader_n_workers 2 --persistent_data_loader_workers --network_module networks.lora_wan --network_dim 32 --network_alpha 32 --timestep_sampling shift --discrete_flow_shift 2 --max_train_epochs 125 --save_every_n_epochs 5 --seed 777 --network_args "loraplus_lr_ratio=4" --optimizer_args weight_decay=0.1 --max_grad_norm 0 --lr_scheduler cosine --lr_scheduler_power 2 --output_dir "D:/Dataset/output" --output_name WAN2.2-ShitLoRA_v1 --metadata_title WAN2.2-ShitLoRA_v1 --metadata_author No_One_Cares --preserve_distribution_shape --min_timestep 875 --max_timestep 1000 --logging_dir logs --log_with tensorboard --sample_prompts "D:/Dataset/sample_prompt.txt" --sample_every_n_epochs 5 --run_val`
+
 # Musubi Tuner
 
 [English](./README.md) | [日本語](./README.ja.md)
