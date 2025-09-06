@@ -7,6 +7,8 @@ The validation checks after every 1 epoch and save tensor log.
 
 [Example Dataset with Validation](https://github.com/niceguy4/musubi-tuner-wan-validation/blob/main/src/musubi_tuner/dataset/dataset.toml)
 
+The /wan_cache_latents.py and /wan_cache_text_encoder_outputs.py are run the same. No additional agruments needed.
+
 Add `--run_val` to accelerate launch command to include validation testing during training.
 
 Here is an example command that I use for training that works.
