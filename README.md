@@ -1,3 +1,10 @@
+##
+This is a fork as of 9/6/2025. 
+
+I used Claude to add a validation test during training for Wan2.2
+
+The validation checks after every 1 epoch and save tensor log.
+
 # Musubi Tuner
 
 [English](./README.md) | [日本語](./README.ja.md)
