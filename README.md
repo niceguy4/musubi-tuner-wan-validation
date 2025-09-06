@@ -7,6 +7,8 @@ The validation checks after every 1 epoch and save tensor log.
 
 [Example Dataset with Validation](https://github.com/niceguy4/musubi-tuner-wan-validation/blob/main/src/musubi_tuner/dataset/dataset.toml)
 
+Add `--run_val` to accelerate launch command to include validation testing during training.
+
 # Musubi Tuner
 
 [English](./README.md) | [日本語](./README.ja.md)
