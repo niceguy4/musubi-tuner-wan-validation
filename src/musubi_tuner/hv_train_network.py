@@ -441,6 +441,10 @@ class NetworkTrainer:
                     logs[f"lr/d*lr/group{i}"] = optimizer.param_groups[i]["d"] * optimizer.param_groups[i]["lr"]
 
         return logs
+    
+    def run_validation(self, accelerator, args, epoch, vae, transformer, validation_dataloader, network_dtype):
+        """Run validation and return average loss - to be overridden by subclasses"""
+        return None  # Base implementation does nothing, subclasses should override
 
     def get_optimizer(self, args, trainable_params: list[torch.nn.Parameter]) -> tuple[str, str, torch.optim.Optimizer]:
         # adamw, adamw8bit, adafactor
@@ -1655,6 +1659,7 @@ class NetworkTrainer:
             logger.info(f"Using timestep bucketing. Number of buckets: {args.num_timestep_buckets}")
         self.num_timestep_buckets = args.num_timestep_buckets  # None or int, None makes all the behavior same as before
 
+
         blueprint_generator = BlueprintGenerator(ConfigSanitizer())
         logger.info(f"Load dataset config from {args.dataset_config}")
         user_config = config_utils.load_user_config(args.dataset_config)
@@ -1668,6 +1673,26 @@ class NetworkTrainer:
                 "No training items found in the dataset. Please ensure that the latent/Text Encoder cache has been created beforehand."
                 " / データセットに学習データがありません。latent/Text Encoderキャッシュを事前に作成したか確認してください"
             )
+        
+        self.validation_dataloader = None
+        if hasattr(args, 'run_val') and args.run_val and hasattr(blueprint, 'validation_group') and blueprint.validation_group is not None:
+            logger.info("Loading validation datasets")
+            validation_dataset_group = config_utils.generate_dataset_group_by_blueprint(
+                blueprint.validation_group, training=True, num_timestep_buckets=None
+            )
+            
+            # Create validation dataloader
+            self.validation_dataloader = torch.utils.data.DataLoader(
+                validation_dataset_group,
+                batch_size=1,
+                shuffle=False,
+                collate_fn=lambda x: x[0],
+                num_workers=0,
+                persistent_workers=False,
+            )
+            
+            logger.info(f"Validation dataset loaded with {validation_dataset_group.num_train_items} items")
+
 
         current_epoch = Value("i", 0)
         current_step = Value("i", 0)
@@ -2244,6 +2269,28 @@ class NetworkTrainer:
 
             # save model at the end of epoch if needed
             optimizer_eval_fn()
+                        
+            # Add validation here
+            if hasattr(args, 'run_val') and args.run_val and hasattr(self, 'validation_dataloader') and self.validation_dataloader is not None:
+                val_metrics = self.run_validation(
+                    accelerator, args, epoch + 1, vae, transformer, self.validation_dataloader, network_dtype
+                )
+                
+                if val_metrics and len(accelerator.trackers) > 0:
+                    # Log validation metrics to TensorBoard
+                    log_dict = {}
+                    if val_metrics.get("val_loss") is not None:
+                        log_dict["validation/loss"] = val_metrics["val_loss"]
+                    if val_metrics.get("val_image_loss") is not None:
+                        log_dict["validation/image_loss"] = val_metrics["val_image_loss"]
+                    if val_metrics.get("val_video_loss") is not None:
+                        log_dict["validation/video_loss"] = val_metrics["val_video_loss"]
+                    
+                    accelerator.log(log_dict, step=epoch + 1)
+                    logger.info(f"Logged validation metrics to TensorBoard: {log_dict}")
+            
+            # Then the existing saving code continues...
+
             if args.save_every_n_epochs is not None:
                 saving = (epoch + 1) % args.save_every_n_epochs == 0 and (epoch + 1) < num_train_epochs
                 if is_main_process and saving:
